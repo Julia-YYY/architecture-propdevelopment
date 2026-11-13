@@ -19,6 +19,13 @@ USERS=(
   "dmitry:propdev:housing-developers"
 )
 
+# Путь для передачи в openssl. На Windows (Git Bash) переводим в нативный вид
+# "C:\...": путь "c:/..." OpenSSL 3 может принять за URI и не открыть файл.
+# На Linux/macOS cygpath нет — путь возвращается как есть.
+osslpath() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s\n' "$1"; fi
+}
+
 mkdir -p "$CERT_DIR"
 echo "Кластер: $CLUSTER (контекст $SERVER_CTX), сертификаты: $CERT_DIR"
 
@@ -52,8 +59,9 @@ EOF
 sign_with_minikube_ca() {
   local csr_file="$1" crt_file="$2"
   [ -f "$MINIKUBE_CA_DIR/ca.crt" ] && [ -f "$MINIKUBE_CA_DIR/ca.key" ] || return 1
-  openssl x509 -req -in "$csr_file" -CA "$MINIKUBE_CA_DIR/ca.crt" -CAkey "$MINIKUBE_CA_DIR/ca.key" \
-    -CAcreateserial -out "$crt_file" -days 365 2>/dev/null
+  MSYS_NO_PATHCONV=1 openssl x509 -req -in "$(osslpath "$csr_file")" \
+    -CA "$(osslpath "$MINIKUBE_CA_DIR/ca.crt")" -CAkey "$(osslpath "$MINIKUBE_CA_DIR/ca.key")" \
+    -CAcreateserial -out "$(osslpath "$crt_file")" -days 365 2>/dev/null
 }
 
 for entry in "${USERS[@]}"; do
@@ -64,9 +72,11 @@ for entry in "${USERS[@]}"; do
   for g in "${group_list[@]}"; do subj="$subj/O=$g"; done
 
   key="$CERT_DIR/$user.key"; csr="$CERT_DIR/$user.csr"; crt="$CERT_DIR/$user.crt"
-  openssl genrsa -out "$key" 2048 2>/dev/null
+  # Ключ и CSR создаются одной командой: OpenSSL 3 не читает ключ по пути (-key),
+  # который на Windows ("c:/...") может принять за URI и не открыть.
   # MSYS_NO_PATHCONV: не даём Git Bash на Windows превратить "/CN=..." в путь
-  MSYS_NO_PATHCONV=1 openssl req -new -key "$key" -out "$csr" -subj "$subj"
+  MSYS_NO_PATHCONV=1 openssl req -new -newkey rsa:2048 -nodes \
+    -keyout "$(osslpath "$key")" -out "$(osslpath "$csr")" -subj "$subj" 2>/dev/null
 
   if sign_with_csr_api "$user" "$csr" "$crt"; then
     how="CSR API"
