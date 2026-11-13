@@ -1,0 +1,88 @@
+# Сетевые политики для четырёх сервисов в namespace default.
+#   front-end-app        (role=front-end)          <-> back-end-api-app       (role=back-end-api)
+#   admin-front-end-app  (role=admin-front-end)    <-> admin-back-end-api-app (role=admin-back-end-api)
+# Весь остальной входящий трафик к подам запрещён (default deny), в том числе между
+# публичной и админской парой и от любых посторонних подов.
+#
+# ВАЖНО: NetworkPolicy работает только с CNI, который её поддерживает:
+#   minikube start --cni=calico
+#
+# Применение: kubectl apply -f non-admin-api-allow.yaml
+
+# 1. Запрет всего входящего трафика ко всем подам namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# 2. front-end -> back-end-api
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: back-end-api-allow-from-front-end
+spec:
+  podSelector:
+    matchLabels:
+      role: back-end-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: front-end
+---
+# 3. back-end-api -> front-end
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: front-end-allow-from-back-end-api
+spec:
+  podSelector:
+    matchLabels:
+      role: front-end
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: back-end-api
+---
+# 4. admin-front-end -> admin-back-end-api
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: admin-back-end-api-allow-from-admin-front-end
+spec:
+  podSelector:
+    matchLabels:
+      role: admin-back-end-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: admin-front-end
+---
+# 5. admin-back-end-api -> admin-front-end
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: admin-front-end-allow-from-admin-back-end-api
+spec:
+  podSelector:
+    matchLabels:
+      role: admin-front-end
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: admin-back-end-api
